@@ -1,7 +1,7 @@
 """
 Patch definitions for Custom Frida Builder.
 
-Verified against Frida 17.7.2 source code (February 2026).
+Verified against Frida 17.7.2 and 17.9.1 source code.
 Extended beyond ajeossida with additional anti-detection techniques.
 
 Patch categories:
@@ -39,6 +39,11 @@ def get_source_patches(name: str, cap_name: str) -> list[tuple[str, str]]:
         # Must rename to prevent binary sweep from corrupting DEX, and to hide
         # the "re.frida.helper" process name which is a detection vector.
         # Order: most specific first
+        # JNI slash-notation paths (17.9.1+: used by AndroidHelperService find_class)
+        ("re/frida/HelperBackend", f"re/{name}/HelperBackend"),
+        ("re/frida/Helper", f"re/{name}/Helper"),
+        # Dot-notation (Java package names, Vala references)
+        ("re.frida.HelperBackend", f"re.{name}.HelperBackend"),
         ("re.frida.Helper", f"re.{name}.Helper"),
         ("re.frida.helper", f"re.{name}.helper"),
         ("re.frida.Gadget", f"re.{name}.Gadget"),
@@ -304,6 +309,7 @@ def get_port_patches(new_port: int = 27142) -> list[dict]:
             "pattern": "27042",
             "replacement": str(new_port),
             "files": [
+                "subprojects/frida-core/lib/base/socket.vala",
                 "subprojects/frida-core/lib/interfaces/session.vala",
                 "subprojects/frida-core/src/droidy/droidy-client.vala",
                 "subprojects/frida-core/server/server.vala",

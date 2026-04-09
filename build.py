@@ -232,41 +232,40 @@ def rebuild_helper_dex(frida_dir: Path, custom_name: str):
     """Rebuild the Android helper DEX with renamed Java package.
 
     The pre-compiled helper.dex in the repo contains 're.frida.Helper'.
-    We need to recompile it with the new package name so that:
+    In 17.9.1+, 're.frida.HelperBackend' was also added.
+    We need to recompile all Java files with the new package name so that:
     1. The DEX string table doesn't contain 'frida' (binary sweep safe)
-    2. The class name matches what the renamed Vala code expects
+    2. The class names match what the renamed Vala code expects
     """
     helper_dir = frida_dir / "subprojects" / "frida-core" / "src" / "android-helper"
     old_pkg_dir = helper_dir / "re" / "frida"
     new_pkg_dir = helper_dir / "re" / custom_name
-    java_file = old_pkg_dir / "Helper.java"
-
-    if not java_file.exists():
-        # Package might already be renamed (e.g., from cache)
-        java_file = new_pkg_dir / "Helper.java"
-        if not java_file.exists():
-            log("  Helper.java not found, skipping DEX rebuild", "WARN")
-            return
 
     # Rename directory: re/frida/ -> re/{name}/
     if old_pkg_dir.exists() and not new_pkg_dir.exists():
         old_pkg_dir.rename(new_pkg_dir)
         log(f"  Renamed {old_pkg_dir.name}/ -> {new_pkg_dir.name}/", "OK")
 
-    java_file = new_pkg_dir / "Helper.java"
-    if not java_file.exists():
-        log("  Helper.java not found after rename", "WARN")
+    # Find all Java files in the package directory
+    if not new_pkg_dir.exists():
+        log(f"  Package dir {new_pkg_dir} not found, skipping DEX rebuild", "WARN")
         return
 
-    # The Java source was already patched by replace_in_tree:
-    #   "package re.frida;" -> "package re.{name};"
-    #   "re.frida.Helper" -> "re.{name}.Helper"
-    # Verify:
-    content = java_file.read_text(encoding="utf-8")
-    if f"package re.{custom_name};" not in content:
-        log("  Helper.java package not patched, fixing...", "WARN")
-        content = content.replace("package re.frida;", f"package re.{custom_name};")
-        java_file.write_text(content, encoding="utf-8")
+    java_files = sorted(new_pkg_dir.glob("*.java"))
+    if not java_files:
+        log("  No .java files found, skipping DEX rebuild", "WARN")
+        return
+
+    java_names = [f.name for f in java_files]
+    log(f"  Found Java sources: {', '.join(java_names)}", "OK")
+
+    # Verify package name is patched in all Java files
+    for java_file in java_files:
+        content = java_file.read_text(encoding="utf-8")
+        if f"package re.{custom_name};" not in content:
+            log(f"  {java_file.name} package not patched, fixing...", "WARN")
+            content = content.replace("package re.frida;", f"package re.{custom_name};")
+            java_file.write_text(content, encoding="utf-8")
 
     # Try to recompile the DEX
     dex_file = helper_dir / "helper.dex"
@@ -319,12 +318,13 @@ def rebuild_helper_dex(frida_dir: Path, custom_name: str):
 
     log(f"  Recompiling helper DEX (android.jar: {android_jar.name})...", "STEP")
 
-    # Step 1: javac -> .class files
+    # Step 1: javac -> .class files (compile ALL Java files together)
+    java_file_args = " ".join(str(f) for f in java_files)
     javac_cmd = (
         f"javac -cp .:{android_jar} -bootclasspath {android_jar} "
         f"-source 1.8 -target 1.8 "
         f"-Xlint:-options "  # suppress bootclasspath warning
-        f"{java_file} -d {java_build}"
+        f"{java_file_args} -d {java_build}"
     )
     result = subprocess.run(javac_cmd, shell=True, cwd=str(helper_dir),
                             capture_output=True, text=True)
