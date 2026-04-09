@@ -50,7 +50,11 @@ def get_source_patches(name: str, cap_name: str) -> list[tuple[str, str]]:
         ("package re.frida;", f"package re.{name};"),
 
         # --- D-Bus / service identifier ---
-        ("re.frida.server", f"re.{name}.server"),
+        # NOTE: Do NOT rename "re.frida.server" — it's part of the Frida wire protocol.
+        # The standard frida client validates the server's identity during handshake.
+        # Renaming it causes "incorrect origin" errors on the client side.
+        # It's only visible over USB/TCP channel (not to other apps), so no detection benefit.
+        # ("re.frida.server", f"re.{name}.server"),  # DISABLED — breaks client compat
 
         # --- Helper binaries (spawned during injection) ---
         # More specific first, then bare form for compat system
